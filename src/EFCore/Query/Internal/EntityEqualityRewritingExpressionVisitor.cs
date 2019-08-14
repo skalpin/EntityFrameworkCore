@@ -370,7 +370,7 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
             }
 
             if (sourceEntityType != null && itemEntityType != null
-                && sourceEntityType.RootType() != itemEntityType.RootType())
+                && sourceEntityType.GetRootType() != itemEntityType.GetRootType())
             {
                 return Expression.Constant(false);
             }
@@ -602,7 +602,7 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
             if (newOuterKeySelector.Body is EntityReferenceExpression outerKeySelectorWrapper
                 && newInnerKeySelector.Body is EntityReferenceExpression innerKeySelectorWrapper
                 && outerKeySelectorWrapper.IsEntityType && innerKeySelectorWrapper.IsEntityType
-                && outerKeySelectorWrapper.EntityType.RootType() == innerKeySelectorWrapper.EntityType.RootType())
+                && outerKeySelectorWrapper.EntityType.GetRootType() == innerKeySelectorWrapper.EntityType.GetRootType())
             {
                 var entityType = outerKeySelectorWrapper.EntityType;
                 var keyProperties = entityType.FindPrimaryKey()?.Properties;
@@ -764,7 +764,7 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
 
             if (leftTypeWrapper != null
                 && rightTypeWrapper != null
-                && leftTypeWrapper.EntityType.RootType() != rightTypeWrapper.EntityType.RootType())
+                && leftTypeWrapper.EntityType.GetRootType() != rightTypeWrapper.EntityType.GetRootType())
             {
                 return Expression.Constant(!equality);
             }

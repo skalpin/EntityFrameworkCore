@@ -16,13 +16,12 @@ namespace Microsoft.EntityFrameworkCore.Query
         private readonly IDictionary<INavigation, EntityShaperExpression> _navigationExpressionsCache
             = new Dictionary<INavigation, EntityShaperExpression>();
 
-        private readonly TableExpressionBase _innerTable;
         private readonly bool _nullable;
 
         public EntityProjectionExpression(IEntityType entityType, TableExpressionBase innerTable, bool nullable)
         {
             EntityType = entityType;
-            _innerTable = innerTable;
+            InnerTable = innerTable;
             _nullable = nullable;
         }
 
@@ -34,11 +33,11 @@ namespace Microsoft.EntityFrameworkCore.Query
 
         protected override Expression VisitChildren(ExpressionVisitor visitor)
         {
-            if (_innerTable != null)
+            if (InnerTable != null)
             {
-                var table = (TableExpressionBase)visitor.Visit(_innerTable);
+                var table = (TableExpressionBase)visitor.Visit(InnerTable);
 
-                return table != _innerTable
+                return table != InnerTable
                     ? new EntityProjectionExpression(EntityType, table, _nullable)
                     : this;
             }
@@ -60,9 +59,9 @@ namespace Microsoft.EntityFrameworkCore.Query
 
         public virtual EntityProjectionExpression MakeNullable()
         {
-            if (_innerTable != null)
+            if (InnerTable != null)
             {
-                return new EntityProjectionExpression(EntityType, _innerTable, true);
+                return new EntityProjectionExpression(EntityType, InnerTable, true);
             }
 
             var newCache = new Dictionary<IProperty, ColumnExpression>();
@@ -76,9 +75,9 @@ namespace Microsoft.EntityFrameworkCore.Query
 
         public virtual EntityProjectionExpression UpdateEntityType(IEntityType derivedType)
         {
-            if (_innerTable != null)
+            if (InnerTable != null)
             {
-                return new EntityProjectionExpression(derivedType, _innerTable, _nullable);
+                return new EntityProjectionExpression(derivedType, InnerTable, _nullable);
             }
             else
             {
@@ -97,6 +96,7 @@ namespace Microsoft.EntityFrameworkCore.Query
             }
         }
 
+        public virtual TableExpressionBase InnerTable { get; }
         public virtual IEntityType EntityType { get; }
         public sealed override ExpressionType NodeType => ExpressionType.Extension;
         public override Type Type => EntityType.ClrType;
@@ -112,7 +112,7 @@ namespace Microsoft.EntityFrameworkCore.Query
 
             if (!_propertyExpressionsCache.TryGetValue(property, out var expression))
             {
-                expression = new ColumnExpression(property, _innerTable, _nullable);
+                expression = new ColumnExpression(property, InnerTable, _nullable);
                 _propertyExpressionsCache[property] = expression;
             }
 

@@ -85,6 +85,7 @@ namespace Microsoft.EntityFrameworkCore
             {
                 using (var context = CreateContext())
                 {
+                    var tanks = context.Set<FuelTank>().ToList();
                     Assert.Equal(2, context.Set<FuelTank>().ToList().Count);
                 }
             }

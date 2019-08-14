@@ -79,6 +79,7 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
 
             var entityProjection = new EntityProjectionExpression(entityType, tableExpression, false);
             _projectionMapping[new ProjectionMember()] = entityProjection;
+            _projectionMapping[new ProjectionMember(entityType)] = entityProjection;
 
             if (entityType.FindPrimaryKey() != null)
             {
@@ -101,6 +102,7 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
 
             var entityProjection = new EntityProjectionExpression(entityType, fromSqlExpression, false);
             _projectionMapping[new ProjectionMember()] = entityProjection;
+            _projectionMapping[new ProjectionMember(entityType)] = entityProjection;
 
             if (entityType.FindPrimaryKey() != null)
             {
@@ -112,8 +114,7 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
         }
 
         public bool IsNonComposedFromSql()
-        {
-            return Limit == null
+            => Limit == null
                 && Offset == null
                 && !IsDistinct
                 && Predicate == null
@@ -123,7 +124,6 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
                 && Tables.Count == 1
                 && Tables[0] is FromSqlExpression fromSql
                 && Projection.All(pe => pe.Expression is ColumnExpression column ? ReferenceEquals(column.Table, fromSql) : false);
-        }
 
         public void ApplyProjection()
         {
@@ -137,6 +137,11 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
             {
                 if (keyValuePair.Value is EntityProjectionExpression entityProjection)
                 {
+                    if (keyValuePair.Key.Root != null)
+                    {
+                        continue;
+                    }
+
                     var map = new Dictionary<IProperty, int>();
 
                     foreach (var property in GetAllPropertiesInHierarchy(entityProjection.EntityType))
@@ -170,10 +175,22 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
         public Expression GetMappedProjection(ProjectionMember projectionMember)
             => _projectionMapping[projectionMember];
 
-        public int AddToProjection(SqlExpression sqlExpression)
+        public EntityProjectionExpression GetEntityProjectionExpression(IEntityType entityType, HashSet<IEntityType> sharingTypes)
         {
-            return AddToProjection(sqlExpression, null);
+            var projectionMember = new ProjectionMember(entityType);
+            if (!_projectionMapping.TryGetValue(projectionMember, out var projection))
+            {
+                _projectionMapping.TryGetValue(new ProjectionMember(), out var sharedProjection);
+                var tableExpression = ((EntityProjectionExpression)sharedProjection).InnerTable;
+
+                projection = new EntityProjectionExpression(entityType, tableExpression, nullable: true);
+                _projectionMapping[projectionMember] = projection;
+            }
+
+            return (EntityProjectionExpression)projection;
         }
+
+        public int AddToProjection(SqlExpression sqlExpression) => AddToProjection(sqlExpression, null);
 
         private int AddToProjection(SqlExpression sqlExpression, string alias)
         {
@@ -990,12 +1007,20 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
             var projectionMapping = new Dictionary<ProjectionMember, Expression>();
             foreach (var projection in _projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(outerMemberInfo)] = projection.Value;
             }
 
             var innerMemberInfo = transparentIdentifierType.GetTypeInfo().GetDeclaredField("Inner");
             foreach (var projection in innerSelectExpression._projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(innerMemberInfo)] = projection.Value;
             }
 
@@ -1032,6 +1057,10 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
                 var projectionMapping = new Dictionary<ProjectionMember, Expression>();
                 foreach (var projection in _projectionMapping)
                 {
+                    if (projection.Key.Root != null)
+                    {
+                        continue;
+                    }
                     projectionMapping[projection.Key.Prepend(outerMemberInfo)] = projection.Value;
                 }
 
@@ -1041,6 +1070,10 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
                     var projectionToAdd = projection.Value;
                     if (projectionToAdd is EntityProjectionExpression entityProjection)
                     {
+                        if (projection.Key.Root != null)
+                        {
+                            continue;
+                        }
                         projectionToAdd = entityProjection.MakeNullable();
                     }
                     else if (projectionToAdd is ColumnExpression column)
@@ -1081,12 +1114,20 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
             var projectionMapping = new Dictionary<ProjectionMember, Expression>();
             foreach (var projection in _projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(outerMemberInfo)] = projection.Value;
             }
 
             var innerMemberInfo = transparentIdentifierType.GetTypeInfo().GetDeclaredField("Inner");
             foreach (var projection in innerSelectExpression._projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(innerMemberInfo)] = projection.Value;
             }
 
@@ -1128,12 +1169,20 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
             var projectionMapping = new Dictionary<ProjectionMember, Expression>();
             foreach (var projection in _projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(outerMemberInfo)] = projection.Value;
             }
 
             var innerMemberInfo = transparentIdentifierType.GetTypeInfo().GetDeclaredField("Inner");
             foreach (var projection in innerSelectExpression._projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(innerMemberInfo)] = projection.Value;
             }
 
@@ -1175,6 +1224,10 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
             var projectionMapping = new Dictionary<ProjectionMember, Expression>();
             foreach (var projection in _projectionMapping)
             {
+                if (projection.Key.Root != null)
+                {
+                    continue;
+                }
                 projectionMapping[projection.Key.Prepend(outerMemberInfo)] = projection.Value;
             }
 
@@ -1184,6 +1237,10 @@ namespace Microsoft.EntityFrameworkCore.Query.SqlExpressions
                 var projectionToAdd = projection.Value;
                 if (projectionToAdd is EntityProjectionExpression entityProjection)
                 {
+                    if (projection.Key.Root != null)
+                    {
+                        continue;
+                    }
                     projectionToAdd = entityProjection.MakeNullable();
                 }
                 else if (projectionToAdd is ColumnExpression column)

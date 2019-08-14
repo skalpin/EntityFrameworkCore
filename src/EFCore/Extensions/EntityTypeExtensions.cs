@@ -41,11 +41,11 @@ namespace Microsoft.EntityFrameworkCore
         /// <returns>
         ///     The root base type. If the given entity type is not a derived type, then the same entity type is returned.
         /// </returns>
-        public static IEntityType RootType([NotNull] this IEntityType entityType)
+        public static IEntityType GetRootType([NotNull] this IEntityType entityType)
         {
             Check.NotNull(entityType, nameof(entityType));
 
-            return entityType.BaseType?.RootType() ?? entityType;
+            return entityType.BaseType?.GetRootType() ?? entityType;
         }
 
         /// <summary>
@@ -644,7 +644,7 @@ namespace Microsoft.EntityFrameworkCore
         {
             if (entityType.BaseType != null)
             {
-                return entityType.RootType().GetDiscriminatorProperty();
+                return entityType.GetRootType().GetDiscriminatorProperty();
             }
 
             var propertyName = (string)entityType[CoreAnnotationNames.DiscriminatorProperty];

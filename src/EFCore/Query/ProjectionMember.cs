@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace Microsoft.EntityFrameworkCore.Query
 {
@@ -19,9 +20,21 @@ namespace Microsoft.EntityFrameworkCore.Query
             _memberChain = new List<MemberInfo>();
         }
 
+        public ProjectionMember(IEntityType root)
+            : this()
+        {
+            Root = root;
+        }
+
         private ProjectionMember(IList<MemberInfo> memberChain)
         {
             _memberChain = memberChain;
+        }
+
+        private ProjectionMember(IEntityType root, IList<MemberInfo> memberChain)
+            : this(memberChain)
+        {
+            Root = root;
         }
 
         public virtual ProjectionMember Append(MemberInfo member)
@@ -29,7 +42,7 @@ namespace Microsoft.EntityFrameworkCore.Query
             var existingChain = _memberChain.ToList();
             existingChain.Add(member);
 
-            return new ProjectionMember(existingChain);
+            return new ProjectionMember(Root, existingChain);
         }
 
         public virtual ProjectionMember Prepend(MemberInfo member)
@@ -37,14 +50,21 @@ namespace Microsoft.EntityFrameworkCore.Query
             var existingChain = _memberChain.ToList();
             existingChain.Insert(0, member);
 
-            return new ProjectionMember(existingChain);
+            return new ProjectionMember(Root, existingChain);
         }
 
         public virtual MemberInfo Last => _memberChain.LastOrDefault();
 
+        public virtual IEntityType Root { get; set; }
+
         public override int GetHashCode()
         {
             var hash = new HashCode();
+            if (Root != null)
+            {
+                hash.Add(Root);
+            }
+
             // ReSharper disable once ForCanBeConvertedToForeach
             for (var i = 0; i < _memberChain.Count; i++)
             {
@@ -61,6 +81,11 @@ namespace Microsoft.EntityFrameworkCore.Query
 
         private bool Equals(ProjectionMember other)
         {
+            if (Root != other.Root)
+            {
+                return false;
+            }
+
             if (_memberChain.Count != other._memberChain.Count)
             {
                 return false;
@@ -78,8 +103,10 @@ namespace Microsoft.EntityFrameworkCore.Query
         }
 
         public override string ToString()
-            => _memberChain.Any()
-                ? string.Join(".", _memberChain.Select(mi => mi.Name))
+            => _memberChain.Any() || Root != null
+                ? string.Join(".",
+                    (Root == null ? Enumerable.Empty<string>() : new List<string>() { Root.DisplayName() })
+                    .Concat(_memberChain.Select(mi => mi.Name)))
                 : "EmptyProjectionMember";
     }
 }

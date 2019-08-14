@@ -435,7 +435,7 @@ namespace Microsoft.EntityFrameworkCore.Query
         public virtual SelectExpression Select(IEntityType entityType)
         {
             var selectExpression = new SelectExpression(entityType);
-            AddDiscriminator(selectExpression, entityType);
+            AddConditions(selectExpression, entityType);
 
             return selectExpression;
         }
@@ -443,39 +443,168 @@ namespace Microsoft.EntityFrameworkCore.Query
         public virtual SelectExpression Select(IEntityType entityType, string sql, Expression sqlArguments)
         {
             var selectExpression = new SelectExpression(entityType, sql, sqlArguments);
-            AddDiscriminator(selectExpression, entityType);
+            AddConditions(selectExpression, entityType);
 
             return selectExpression;
         }
 
-        private void AddDiscriminator(SelectExpression selectExpression, IEntityType entityType)
+        private void AddConditions(SelectExpression selectExpression, IEntityType entityType)
+        {
+            SqlExpression predicate;
+            if (entityType.FindPrimaryKey() == null)
+            {
+                predicate = GenerateDiscriminatorExpression(selectExpression, entityType, null);
+            }
+            else
+            {
+                var sharingTypes = new HashSet<IEntityType>(
+                        entityType.Model.GetEntityTypes()
+                            .Where(et => et.FindPrimaryKey() != null
+                                      && et.GetTableName() == entityType.GetTableName()
+                                      && et.GetSchema() == entityType.GetSchema()));
+
+                var currentPath = new Stack<IEntityType>();
+                currentPath.Push(entityType);
+
+                var allPaths = new List<List<IEntityType>>();
+                FindPaths(entityType.GetRootType(), sharingTypes, currentPath, allPaths);
+
+                predicate = allPaths
+                    .Select(
+                        p => p.Select(
+                                et => GenerateDiscriminatorExpression(selectExpression, et, sharingTypes)
+                                   ?? GenerateSharedTableExpression(selectExpression, et, sharingTypes))
+                            .Aggregate(
+                                (SqlExpression)null,
+                                (result, current) => result != null
+                                    ? current != null
+                                        ? AndAlso(result, current)
+                                        : result
+                                    : current))
+                    .Aggregate(
+                        (SqlExpression)null,
+                        (result, current) => result != null
+                            ? current != null
+                                ? OrElse(result, current)
+                                : result
+                            : current);
+            }
+
+            if (predicate != null)
+            {
+                selectExpression.ApplyPredicate(predicate);
+            }
+        }
+
+        private void FindPaths(
+            IEntityType entityType, ICollection<IEntityType> sharingTypes,
+            Stack<IEntityType> currentPath, ICollection<List<IEntityType>> result)
+        {
+            var identifyingFks = entityType.FindForeignKeys(entityType.FindPrimaryKey().Properties)
+                .Where(
+                    fk => fk.PrincipalKey.IsPrimaryKey()
+                          && fk.PrincipalEntityType != entityType
+                          && sharingTypes.Contains(fk.PrincipalEntityType))
+                .ToList();
+
+            if (identifyingFks.Count == 0)
+            {
+                result.Add(new List<IEntityType>(currentPath));
+                return;
+            }
+
+            foreach (var fk in identifyingFks)
+            {
+                currentPath.Push(fk.PrincipalEntityType);
+                FindPaths(fk.PrincipalEntityType.GetRootType(), sharingTypes, currentPath, result);
+                currentPath.Pop();
+            }
+        }
+
+        private SqlExpression GenerateDiscriminatorExpression(
+            SelectExpression selectExpression, IEntityType entityType, HashSet<IEntityType> sharingTypes)
         {
             var concreteEntityTypes = entityType.GetConcreteDerivedTypesInclusive().ToList();
-
             if (concreteEntityTypes.Count == 1)
             {
                 var concreteEntityType = concreteEntityTypes[0];
                 // If not a derived type
-                if (concreteEntityType.RootType() == concreteEntityType)
+                if (concreteEntityType.GetRootType() == concreteEntityType)
                 {
-                    return;
+                    return null;
                 }
 
-                var discriminatorColumn = ((EntityProjectionExpression)selectExpression.GetMappedProjection(new ProjectionMember()))
+                var discriminatorColumn = selectExpression.GetEntityProjectionExpression(entityType, sharingTypes)
                     .BindProperty(concreteEntityType.GetDiscriminatorProperty());
 
-                selectExpression.ApplyPredicate(
-                    Equal(discriminatorColumn, Constant(concreteEntityType.GetDiscriminatorValue())));
+                return Equal(discriminatorColumn, Constant(concreteEntityType.GetDiscriminatorValue()));
 
             }
             else
             {
-                var discriminatorColumn = ((EntityProjectionExpression)selectExpression.GetMappedProjection(new ProjectionMember()))
+                var discriminatorColumn = selectExpression.GetEntityProjectionExpression(entityType, sharingTypes)
                     .BindProperty(concreteEntityTypes[0].GetDiscriminatorProperty());
 
-                selectExpression.ApplyPredicate(
-                    In(discriminatorColumn, Constant(concreteEntityTypes.Select(et => et.GetDiscriminatorValue()).ToList()), negated: false));
+                return In(discriminatorColumn, Constant(concreteEntityTypes.Select(et => et.GetDiscriminatorValue()).ToList()), negated: false);
             }
         }
+
+        private SqlExpression GenerateSharedTableExpression(
+            SelectExpression selectExpression, IEntityType entityType, HashSet<IEntityType> sharingTypes)
+        {
+            if (sharingTypes.Count == 1
+                || !entityType.FindForeignKeys(entityType.FindPrimaryKey().Properties)
+                    .Any(fk => fk.PrincipalKey.IsPrimaryKey()
+                               && fk.PrincipalEntityType != entityType
+                               && sharingTypes.Contains(fk.PrincipalEntityType)))
+            {
+                return null;
+            }
+
+            SqlExpression predicate = null;
+            var entityProjectionExpression = selectExpression.GetEntityProjectionExpression(entityType, sharingTypes);
+            var requiredNonPkProperties = entityType.GetProperties().Where(p => !p.IsNullable && !p.IsPrimaryKey()).ToList();
+            if (requiredNonPkProperties.Count > 0)
+            {
+                predicate = IsNotNull(requiredNonPkProperties[0], entityProjectionExpression);
+
+                if (requiredNonPkProperties.Count > 1)
+                {
+                    predicate
+                        = requiredNonPkProperties
+                            .Skip(1)
+                            .Aggregate(
+                                predicate, (current, property) =>
+                                    AndAlso(
+                                        IsNotNull(property, entityProjectionExpression),
+                                        current));
+                }
+            }
+            else
+            {
+                var allNonPkProperties = entityType.GetProperties().Where(p => !p.IsPrimaryKey()).ToList();
+                if (allNonPkProperties.Count > 0)
+                {
+                    predicate = IsNotNull(allNonPkProperties[0], entityProjectionExpression);
+
+                    if (allNonPkProperties.Count > 1)
+                    {
+                        predicate
+                            = allNonPkProperties
+                                .Skip(1)
+                                .Aggregate(
+                                    predicate, (current, property) =>
+                                        OrElse(
+                                            IsNotNull(property, entityProjectionExpression),
+                                            current));
+                    }
+                }
+            }
+
+            return predicate;
+        }
+
+        private SqlExpression IsNotNull(IProperty property, EntityProjectionExpression entityProjection)
+            => IsNotNull(entityProjection.BindProperty(property));
     }
 }
